@@ -26,7 +26,8 @@ fprintf(stderr, __VA_ARGS__)
 
 typedef struct {
     int cart_rank, nprocs, reorder, row, column;
-    int px, py;
+    int px;
+    int py;
     MPI_Comm cart_comm, row_comm, col_comm;
     
 } info;
@@ -42,15 +43,24 @@ int main(int argc, char *argv[])
     
     MPI_Init(&argc, &argv);
     
+    int global_rank;
     info grid;
     int nprocs;
     MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
+    MPI_Comm_rank(MPI_COMM_WORLD, &global_rank);
     
+    
+    grid.nprocs = nprocs;
     makeGrid(&grid);
     
     
+
+    if (global_rank == 2) {
     
-    if
+        dprintf("px %d \n", grid.px);
+        dprintf("py %d \n", grid.py);
+        
+    }
     
     
     MPI_Finalize();
@@ -212,8 +222,16 @@ void makeGrid(info * grid) {
     
     /* int MPI_Dims_create(int nnodes, int ndims, int dims[]) */
     
-    MPI_Dims_create(grid -> nprocs, 2, dims);
+    dims[0] = dims[1] = 0; // preventing bug making 1D typology
     
+    MPI_Dims_create(grid -> nprocs, 2, dims);
+
+    
+//    if (global_rank == 1) {
+//        
+//        dprintf("px %d \n", dims[0]);
+//        dprintf("py %d \n", dims[1]);
+//    }
     
   //  dim[0] = dim[1] = sqrt((grid->nprocs)); /*dimension*/
     period[0] = period[1] = TRUE;
