@@ -55,7 +55,7 @@ int main(int argc, char *argv[])
     
     
 
-    if (global_rank == 2) {
+    if (global_rank == 0) {
     
         dprintf("px %d \n", grid.px);
         dprintf("py %d \n", grid.py);
@@ -107,7 +107,7 @@ int main(int argc, char *argv[])
   }
 
 #ifdef WRITE_TO_FILE
-  save_solution(u_new,Ny,Nx,1);
+  save_solution(u_new,Ny,Nx,1); // write from one processor only
 #endif
 #ifdef VERIFY
   double max_error=0.0;
@@ -146,7 +146,7 @@ int main(int argc, char *argv[])
 #endif
 
 #ifdef WRITE_TO_FILE
-    save_solution(u_new,Ny,Nx,n);
+    save_solution(u_new,Ny,Nx,n);  // write from one processor only
 #endif
 
   }
