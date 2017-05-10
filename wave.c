@@ -64,6 +64,44 @@ int main(int argc, char *argv[])
     
     
     
+    /* TEST */ // SEEMS TO WORK!!!
+
+    
+//    int * test_A = malloc(12*sizeof(int));
+//    int * test_B = malloc(12*sizeof(int));
+//    for (int i = 0; i<12; i++) {
+//        test_A[i] = i;
+//        test_B[i] = 0;
+//    }
+//    
+//    
+//    MPI_Datatype SEND_BLOCK;
+//    
+//    // int MPI_Type_vector(int count, int blocklength, int stride, MPI_Datatype oldtype, MPI_Datatype *newtype)
+//    
+//    MPI_Type_vector(6, 1, 2, MPI_INT, &SEND_BLOCK);
+//    MPI_Type_commit(&SEND_BLOCK);
+//    
+//    
+//    /* int MPI_Send(const void *buf, int count, MPI_Datatype datatype, int dest, int tag,
+//     MPI_Comm comm) */
+//    
+//    /* int MPI_Recv(void *buf, int count, MPI_Datatype datatype, int source, int tag,
+//     MPI_Comm comm, MPI_Status *status) */
+//    
+//    if (global_rank == 0)
+//        MPI_Send(test_A, 1, SEND_BLOCK, 1, 0, MPI_COMM_WORLD);
+//    
+//    if (global_rank == 1)
+//        MPI_Recv(test_B, 1, SEND_BLOCK, 0, 0, MPI_COMM_WORLD, NULL);
+//
+//    if (global_rank == 1) {
+//    for (int i = 0; i<12; i++) {
+//        printf("%d \n", test_B[i]);
+//    }
+//    }
+//    
+    
     
     
     int Nx,Ny,Nt, N;
@@ -83,18 +121,34 @@ int main(int argc, char *argv[])
     dt=0.50*dx;
     lambda_sq = (dt/dx)*(dt/dx);
     
-    u = malloc(Nx*Ny*sizeof(double));
-    u_old = malloc(Nx*Ny*sizeof(double));
-    u_new = malloc(Nx*Ny*sizeof(double));
+    
+//    u = malloc(Nx*Ny*sizeof(double));
+//    u_old = malloc(Nx*Ny*sizeof(double));
+//    u_new = malloc(Nx*Ny*sizeof(double));
+    
+    
+//    
+//    u = malloc((Nx/grid.px + 1)*(Ny/grid.py + 1)*sizeof(double)); // add 1 to get extra row and column (halo points)
+//    u_old = malloc((Nx/grid.px + 1)*(Ny/grid.py + 1)*sizeof(double));
+//    u_new = malloc((Nx/grid.px + 1)*(Ny/grid.py + 1)*sizeof(double));
+    
+    
+    
+    u = malloc((Nx + 1)*(Ny + 1)*sizeof(double)); // add 1 to get extra row and column (halo points)
+    u_old = malloc((Nx + 1)*(Ny + 1)*sizeof(double));
+    u_new = malloc((Nx + 1)*(Ny + 1)*sizeof(double));
+    
     
     /* Setup IC */
+//    
+//    memset(u,0,Nx*Ny*sizeof(double));       // BC
+//    memset(u_old,0,Nx*Ny*sizeof(double));   // BC
+//    memset(u_new,0,Nx*Ny*sizeof(double));   // BC
     
-    memset(u,0,Nx*Ny*sizeof(double));       // BC
-    memset(u_old,0,Nx*Ny*sizeof(double));   // BC
-    memset(u_new,0,Nx*Ny*sizeof(double));   // BC
     
     
-    int coords[2];
+    // TODO: change to right notation i and j
+    int coords[2]; // i = x, j = y
     MPI_Cart_coords(grid.cart_comm,global_rank, 2, coords);
     int i = coords[0]; int j = coords[1];
     
@@ -103,6 +157,20 @@ int main(int argc, char *argv[])
     
     int ll_y = 1 + j * (Ny/grid.py - 1);
     int ul_y = 1 + (j+1) * (Ny/grid.py - 1);
+    
+    
+//    /* Setup IC */
+//    memset(u,0,(Nx/grid.px + 1)*(Ny/grid.py + 1)*sizeof(double));       // BC
+//    memset(u_old,0,(Nx/grid.px + 1)*(Ny/grid.py + 1)*sizeof(double));   // BC
+//    memset(u_new,0,(Nx/grid.px + 1)*(Ny/grid.py + 1)*sizeof(double));   // BC
+//    
+    
+    /* Setup IC */
+    memset(u,0,(Nx + 1)*(Ny + 1)*sizeof(double));       // BC
+    memset(u_old,0,(Nx + 1)*(Ny + 1)*sizeof(double));   // BC
+    memset(u_new,0,(Nx + 1)*(Ny + 1)*sizeof(double));   // BC
+    
+    
     
     if (global_rank == 0) {
     dprintf("x %d, x %d \n", grid.row, grid.column);
@@ -163,18 +231,138 @@ int main(int argc, char *argv[])
         u_new = tmp;
         
         /* Apply stencil */
-        for(int i = 1; i < (Ny-1); ++i) {
-            for(int j = 1; j < (Nx-1); ++j) {
+//        for(int i = 1; i < (Ny-1); ++i) {
+//            for(int j = 1; j < (Nx-1); ++j) {
+        
+        
+        /* Communicate between processors */
+        MPI_Barrier(MPI_COMM_WORLD);
+       
+        int left_boundary = 0; int right_boundary = grid.px - 1;
+        int upper_boundary = grid.py - 1; int lower_boundary = 0;
+        
+        
+         // int MPI_Type_vector(int count, int blocklength, int stride, MPI_Datatype oldtype, MPI_Datatype *newtype)
+        MPI_Datatype SEND_BLOCK;
+        MPI_Type_vector(Ny/grid.py, 1, Nx, MPI_DOUBLE, &SEND_BLOCK);
+        MPI_Type_commit(&SEND_BLOCK);
+        
+        
+        MPI_Datatype SEND_ROW;
+        MPI_Type_vector(Nx/grid.px, 1, 1, MPI_DOUBLE, &SEND_ROW);
+        MPI_Type_commit(&SEND_ROW);
+        
+        
+        /* if not at left boundary, send left and recieve from right */
+        
+        if (i != left_boundary) {
+           
+            int dest_rank;
+         
+            int coords[2]; // i = y, j = x   int i = coords[0]; int j = coords[1];
+            coords[0] = i - 1; // reciever is located to the left
+            coords[1] = j;
+        
+            MPI_Cart_rank(grid.cart_comm, coords, &dest_rank);
+           
+            // send points on the left edge to the left (becomes right halo points for reciever)
+            MPI_Send(&u[ll_x * Nx], 1, SEND_BLOCK, dest_rank, 0, grid.cart_comm); // ll_x correct for this ?
+            
+            // recieve right halo points from the left
+            MPI_Recv(&u[ll_x * Nx - 1], 1, SEND_BLOCK, dest_rank, 0, grid.cart_comm, NULL); // ll_x * Nx?
+        }
+        
+         /* if not at right boundary, send right and recieve from left */
+        
+        if (i != right_boundary) {
+            int coords[2];
+            int source_rank;
+            
+            coords[0] = i + 1; // sender is located to the right
+            coords[1] = j;
+            MPI_Cart_rank(grid.cart_comm, coords, &source_rank);
+            
+            // send left to right, source rank is confisingly reciever
+            MPI_Send(&u[ul_x * Nx - 1], 1, SEND_BLOCK, source_rank, 0, grid.cart_comm); // ll_x correct for this ?
+            
+            // recieve right halo points from the right
+            MPI_Recv(&u[ul_x * Nx], 1, SEND_BLOCK, source_rank, 0, grid.cart_comm, NULL); // ul_x correct for this ?
+        }
+        
+   
+        /* if not at botom, send down and recieve from top */
+        
+        if (j != lower_boundary) {
+            int coords[2];
+            int source_rank;
+            
+            coords[0] = i;
+            coords[1] = j - 1; // sender is located above reciever
+            MPI_Cart_rank(grid.cart_comm, coords, &source_rank);
+            
+            
+            // send down the halo points one step
+            MPI_Send(&u[ul_y - Nx], 1, SEND_ROW, source_rank, 0, grid.cart_comm); // ll_x correct for this ?
+            
+            // recieve halo points from the top
+            MPI_Recv(&u[ll_y - Nx], 1, SEND_ROW, source_rank, 0, grid.cart_comm, NULL); // ul_x correct for this ?
+            
+        }
+        
+        
+        /* if not at top, send upwards and recieve from underneeth */
+        
+        if (j != upper_boundary) {
+            int coords[2];
+            int source_rank;
+            
+            coords[0] = i;
+            coords[1] = j + 1; // sender is located above reciever
+            MPI_Cart_rank(grid.cart_comm, coords, &source_rank);
+            
+            
+            // send up the halo points one step
+            MPI_Send(&u[ll_y], 1, SEND_ROW, source_rank, 0, grid.cart_comm); // ll_x correct for this ?
+            
+            // recieve halo points from underneeth
+            MPI_Recv(&u[ul_y], 1, SEND_ROW, source_rank, 0, grid.cart_comm, NULL); // ul_x correct for this ?
+            
+        }
+        
+     
+        
+        /* Apply stencil */
+        for(int i = ll_y; i < ul_y; ++i) {
+            for(int j = ll_x; j < ul_x; ++j) {
                 
                 u_new[i*Nx+j] = 2*u[i*Nx+j]-u_old[i*Nx+j]+lambda_sq*
                 (u[(i+1)*Nx+j] + u[(i-1)*Nx+j] + u[i*Nx+j+1] + u[i*Nx+j-1] -4*u[i*Nx+j]);
             }
         }
         
+        
+        // Gather result!
+        
+           MPI_Barrier(MPI_COMM_WORLD);
+        
+        double * result = NULL;
+        
+        if (global_rank == 0) {
+        
+            result = malloc(Nx*Ny*sizeof(double));
+        
+        }
+        
+        
+         // TODO: enable verify solution when > 1 processor are used
 #ifdef VERIFY
         double error=0.0;
-        for(int i = 0; i < Ny; ++i) {
-            for(int j = 0; j < Nx; ++j) {
+//        for(int i = 0; i < Ny; ++i) {
+//            for(int j = 0; j < Nx; ++j) {
+        
+        for(int i = ll_y; i < ul_y; ++i) {
+            for(int j = ll_x; j < ul_x; ++j) {
+        
                 double e = fabs(u_new[i*Nx+j]-initialize(j*dx,i*dx,n*dt));
                 if(e>error)
                 error = e;
@@ -239,6 +427,7 @@ double initialize(double x, double y, double t)
 }
 
 void save_solution(double *u, int Ny, int Nx, int n)
+// TODO: enable saving solution when > 1 processor are used
 {
     char fname[50];
     sprintf(fname,"solution-%d.dat",n);
