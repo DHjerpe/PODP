@@ -32,7 +32,7 @@ typedef struct {
     
 } info;
 
-
+void printMatrix(double * p, int size);
 double timer();
 double initialize(double x, double y, double t);
 void save_solution(double *u, int Ny, int Nx, int n);
@@ -62,46 +62,7 @@ int main(int argc, char *argv[])
         
     }
     
-    
-    
-    /* TEST */ // SEEMS TO WORK!!!
 
-    
-//    int * test_A = malloc(12*sizeof(int));
-//    int * test_B = malloc(12*sizeof(int));
-//    for (int i = 0; i<12; i++) {
-//        test_A[i] = i;
-//        test_B[i] = 0;
-//    }
-//    
-//    
-//    MPI_Datatype SEND_BLOCK;
-//    
-//    // int MPI_Type_vector(int count, int blocklength, int stride, MPI_Datatype oldtype, MPI_Datatype *newtype)
-//    
-//    MPI_Type_vector(6, 1, 2, MPI_INT, &SEND_BLOCK);
-//    MPI_Type_commit(&SEND_BLOCK);
-//    
-//    
-//    /* int MPI_Send(const void *buf, int count, MPI_Datatype datatype, int dest, int tag,
-//     MPI_Comm comm) */
-//    
-//    /* int MPI_Recv(void *buf, int count, MPI_Datatype datatype, int source, int tag,
-//     MPI_Comm comm, MPI_Status *status) */
-//    
-//    if (global_rank == 0)
-//        MPI_Send(test_A, 1, SEND_BLOCK, 1, 0, MPI_COMM_WORLD);
-//    
-//    if (global_rank == 1)
-//        MPI_Recv(test_B, 1, SEND_BLOCK, 0, 0, MPI_COMM_WORLD, NULL);
-//
-//    if (global_rank == 1) {
-//    for (int i = 0; i<12; i++) {
-//        printf("%d \n", test_B[i]);
-//    }
-//    }
-//    
-    
     
     
     int Nx,Ny,Nt, N;
@@ -152,11 +113,20 @@ int main(int argc, char *argv[])
     MPI_Cart_coords(grid.cart_comm,global_rank, 2, coords);
     int i = coords[0]; int j = coords[1];
     
-    int ll_x = 1 + i * (Nx/grid.px - 1);
-    int ul_x = 1 + (i+1) * (Nx/grid.px - 1);
+//    int ll_x = 1 + i * (Nx/grid.px - 1);
+//    int ul_x = 1 + (i+1) * (Nx/grid.px - 1);
+//    
+//    int ll_y = 1 + j * (Ny/grid.py - 1);
+//    int ul_y = 1 + (j+1) * (Ny/grid.py - 1);
     
-    int ll_y = 1 + j * (Ny/grid.py - 1);
-    int ul_y = 1 + (j+1) * (Ny/grid.py - 1);
+    
+    int ll_x = i * (Nx/grid.px);
+    int ul_x = (i+1) * (Nx/grid.px);
+    
+    int ll_y = j * (Ny/grid.py);
+    int ul_y = (j+1) * (Ny/grid.py);
+ 
+    
     
     
 //    /* Setup IC */
@@ -176,7 +146,7 @@ int main(int argc, char *argv[])
     dprintf("x %d, x %d \n", grid.row, grid.column);
         dprintf("lower limit %d \n", ll_x);
          dprintf("upper limit %d \n", ul_x);
-    //dprintf("y %d \n", grid.column);
+    dprintf("Ny %d \n", Ny);
             }
     
     if (global_rank == nprocs - 1) {
@@ -188,8 +158,8 @@ int main(int argc, char *argv[])
     }
     
     
-    for(int i = ll_y; i < ul_y; ++i) {
-        for(int j = ll_x; j < ul_x; ++j) {
+    for(int i = ll_y + 1; i < ul_y - 1; ++i) {
+        for(int j = ll_x + 1; j < ul_x - 1; ++j) {
             double x = j*dx;
             double y = i*dx;
             
@@ -213,6 +183,16 @@ int main(int argc, char *argv[])
 //        }
 //    }
     
+#ifdef DEBUG
+    if (global_rank == 0) {
+        dprintf("u matrix \n");
+        printMatrix(u, Nx);
+       // MPI_Barrier(MPI_COMM_WORLD);
+       // dprintf("u_new matrix \n");
+        printMatrix(u_new, Nx);
+    }
+#endif
+    
 #ifdef WRITE_TO_FILE
     save_solution(u_new,Ny,Nx,1); // write from one processor only
 #endif
@@ -224,12 +204,12 @@ int main(int argc, char *argv[])
     
     begin=timer();
     for(int n=2; n<Nt; ++n) {
-        /* Swap ptrs */
-        double *tmp = u_old;
-        u_old = u;
-        u = u_new;
-        u_new = tmp;
-        
+//        /* Swap ptrs */
+//        double *tmp = u_old;
+//        u_old = u;
+//        u = u_new;
+//        u_new = tmp;
+//        
         /* Apply stencil */
 //        for(int i = 1; i < (Ny-1); ++i) {
 //            for(int j = 1; j < (Nx-1); ++j) {
@@ -253,87 +233,119 @@ int main(int argc, char *argv[])
         MPI_Type_commit(&SEND_ROW);
         
         
-        /* if not at left boundary, send left and recieve from right */
+        /* Swap ptrs */
+        double *tmp = u_old;
+        u_old = u;
+        u = u_new;
+        u_new = tmp;
+        
+        
+        /* if not at left boundary, send left and recieve from left */
         
         if (i != left_boundary) {
            
+            dprintf("sending left, recieving from left \n");
+            
             int dest_rank;
          
             int coords[2]; // i = y, j = x   int i = coords[0]; int j = coords[1];
+            //coords[0] = i - 1; // reciever is located to the left
             coords[0] = i - 1; // reciever is located to the left
             coords[1] = j;
         
             MPI_Cart_rank(grid.cart_comm, coords, &dest_rank);
            
-            // send points on the left edge to the left (becomes right halo points for reciever)
-            MPI_Send(&u[ll_x * Nx], 1, SEND_BLOCK, dest_rank, 0, grid.cart_comm); // ll_x correct for this ?
+            // send to the left
+            MPI_Send(&u[(ll_x) + j * Nx], 1, SEND_BLOCK, dest_rank, 0, grid.cart_comm); // ll_x correct for this ?
             
-            // recieve right halo points from the left
-            MPI_Recv(&u[ll_x * Nx - 1], 1, SEND_BLOCK, dest_rank, 0, grid.cart_comm, NULL); // ll_x * Nx?
+            // recieve from the left
+            MPI_Recv(&u[(ll_x) + j * Nx - 1], 1, SEND_BLOCK, dest_rank, 0, grid.cart_comm, NULL); // ll_x * Nx?
         }
         
-         /* if not at right boundary, send right and recieve from left */
+         /* if not at right boundary, send right and recieve from right */
         
         if (i != right_boundary) {
+            
+            dprintf("sending right, recieving from right \n");
+            
             int coords[2];
             int source_rank;
             
             coords[0] = i + 1; // sender is located to the right
+            //coords[0] = i - 1; // sender is located to the right
             coords[1] = j;
             MPI_Cart_rank(grid.cart_comm, coords, &source_rank);
             
-            // send left to right, source rank is confisingly reciever
-            MPI_Send(&u[ul_x * Nx - 1], 1, SEND_BLOCK, source_rank, 0, grid.cart_comm); // ll_x correct for this ?
+            // send to right
+            MPI_Send(&u[ul_x + j * Nx], 1, SEND_BLOCK, source_rank, 0, grid.cart_comm);
             
             // recieve right halo points from the right
-            MPI_Recv(&u[ul_x * Nx], 1, SEND_BLOCK, source_rank, 0, grid.cart_comm, NULL); // ul_x correct for this ?
+            MPI_Recv(&u[ul_x + j * Nx + 1], 1, SEND_BLOCK, source_rank, 0, grid.cart_comm, NULL); // ul_x correct for this ?
         }
         
    
-        /* if not at botom, send down and recieve from top */
+        /* if not at botom, send down and recieve from bottom */
         
         if (j != lower_boundary) {
+            
+            dprintf("sending down, recieving from bottom \n");
+            
             int coords[2];
             int source_rank;
             
             coords[0] = i;
             coords[1] = j - 1; // sender is located above reciever
+            //coords[1] = j + 1; // sender is located above reciever
             MPI_Cart_rank(grid.cart_comm, coords, &source_rank);
             
             
             // send down the halo points one step
-            MPI_Send(&u[ul_y - Nx], 1, SEND_ROW, source_rank, 0, grid.cart_comm); // ll_x correct for this ?
+            MPI_Send(&u[ul_y * Nx - Nx + ll_x], 1, SEND_ROW, source_rank, 0, grid.cart_comm); // ll_x correct for this ?
             
-            // recieve halo points from the top
-            MPI_Recv(&u[ll_y - Nx], 1, SEND_ROW, source_rank, 0, grid.cart_comm, NULL); // ul_x correct for this ?
+            // recieve halo points from the bottom
+            MPI_Recv(&u[ul_y * Nx + ll_x], 1, SEND_ROW, source_rank, 0, grid.cart_comm, NULL); // ul_x correct for this ?
             
         }
         
         
-        /* if not at top, send upwards and recieve from underneeth */
+        /* if not at top, send upwards and recieve from upper */
         
         if (j != upper_boundary) {
+            
+            dprintf("sending up, recieving from upper \n");
+            
             int coords[2];
             int source_rank;
             
             coords[0] = i;
             coords[1] = j + 1; // sender is located above reciever
+          //   coords[1] = j - 1; // sender is located above reciever
             MPI_Cart_rank(grid.cart_comm, coords, &source_rank);
             
             
             // send up the halo points one step
-            MPI_Send(&u[ll_y], 1, SEND_ROW, source_rank, 0, grid.cart_comm); // ll_x correct for this ?
+            MPI_Send(&u[ll_y * Nx + ll_x], 1, SEND_ROW, source_rank, 0, grid.cart_comm); // ll_x correct for this ?
             
-            // recieve halo points from underneeth
-            MPI_Recv(&u[ul_y], 1, SEND_ROW, source_rank, 0, grid.cart_comm, NULL); // ul_x correct for this ?
+            // recieve halo points from upper
+            MPI_Recv(&u[ll_y * Nx - Nx + ll_x], 1, SEND_ROW, source_rank, 0, grid.cart_comm, NULL); // ul_x correct for this ?
             
         }
         
-     
+        
+#ifdef DEBUG
+        if (global_rank == 0) {
+            dprintf("u matrix \n");
+            printMatrix(u, Nx);
+          //  MPI_Barrier(MPI_COMM_WORLD);
+           // dprintf("u_new matrix \n");
+            printMatrix(u_new, Nx);
+        }
+#endif
+        MPI_Barrier(MPI_COMM_WORLD);
         
         /* Apply stencil */
-        for(int i = ll_y; i < ul_y; ++i) {
-            for(int j = ll_x; j < ul_x; ++j) {
+        for(int i = ll_y + 1; i < ul_y - 1; ++i) {
+            for(int j = ll_x + 1; j < ul_x - 1; ++j) {
                 
                 u_new[i*Nx+j] = 2*u[i*Nx+j]-u_old[i*Nx+j]+lambda_sq*
                 (u[(i+1)*Nx+j] + u[(i-1)*Nx+j] + u[i*Nx+j+1] + u[i*Nx+j-1] -4*u[i*Nx+j]);
@@ -345,14 +357,7 @@ int main(int argc, char *argv[])
         
            MPI_Barrier(MPI_COMM_WORLD);
         
-        double * result = NULL;
-        
-        if (global_rank == 0) {
-        
-            result = malloc(Nx*Ny*sizeof(double));
-        
-        }
-        
+ 
         
          // TODO: enable verify solution when > 1 processor are used
 #ifdef VERIFY
@@ -480,6 +485,27 @@ void makeGrid(info * grid) {
     row_col_coordinates[1] = 0;
     MPI_Cart_sub(grid->cart_comm, row_col_coordinates, &(grid->col_comm)); //column communicator
     
+    
+}
+/**
+ Print matrix for debugging
+ */
+void printMatrix(double * p, int size) {
+    
+    printf("\n");
+    
+    for (int n = 0; n<size; n++) {
+        
+        
+        for (int i = 0; i<size; i++) {
+            
+            printf(" %.1f \t", p[i + n*size]);
+            
+        }
+        printf("\n\n");
+    }
+    
+    printf("\n");
     
 }
 
