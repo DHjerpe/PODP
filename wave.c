@@ -10,6 +10,7 @@
 #define VERIFY
 
 double global_error;
+double total_time;
 
 /** Define to enable debug mode */
 #define DEBUG 0 /* 1 */
@@ -305,7 +306,9 @@ int main(int argc, char *argv[])
         
         
         
-           MPI_Barrier(MPI_COMM_WORLD);
+        
+        
+        
         
 #ifdef VERIFY
         double error=0.0;
@@ -352,8 +355,15 @@ int main(int argc, char *argv[])
         
     }
     end=timer();
+    
+    
+    double local_time = end-begin;
+    MPI_Reduce(&local_time, &total_time, 1, MPI_DOUBLE, MPI_MAX, 0, grid.cart_comm);
+    
+
     if (grid.cart_rank == 0)
-    printf("Time elapsed: %g s\n",(end-begin));
+    //printf("Time elapsed: %g s\n",(end-begin));
+    printf("Time elapsed: %g s\n",total_time);
     
     
 #ifdef VERIFY
