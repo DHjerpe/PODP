@@ -9,10 +9,10 @@
 /* #define WRITE_TO_FILE */
 #define VERIFY
 
-
+double global_error;
 
 /** Define to enable debug mode */
-#define DEBUG 1 /* 1 */
+#define DEBUG 0 /* 1 */
 
 /** Debug output macro. Only active when DEBUG is non-0 */
 #define dprintf(...)                    \
@@ -64,7 +64,6 @@ int main(int argc, char *argv[])
     
 
     
-    
     int Nx,Ny,Nt, N;
     double dt, dx, lambda_sq;
     double *u;
@@ -82,117 +81,111 @@ int main(int argc, char *argv[])
     dt=0.50*dx;
     lambda_sq = (dt/dx)*(dt/dx);
     
-    
-//    u = malloc(Nx*Ny*sizeof(double));
-//    u_old = malloc(Nx*Ny*sizeof(double));
-//    u_new = malloc(Nx*Ny*sizeof(double));
-    
-    
-//    
-//    u = malloc((Nx/grid.px + 1)*(Ny/grid.py + 1)*sizeof(double)); // add 1 to get extra row and column (halo points)
-//    u_old = malloc((Nx/grid.px + 1)*(Ny/grid.py + 1)*sizeof(double));
-//    u_new = malloc((Nx/grid.px + 1)*(Ny/grid.py + 1)*sizeof(double));
-    
-    
-    
-    u = malloc((Nx + 1)*(Ny + 1)*sizeof(double)); // add 1 to get extra row and column (halo points)
-    u_old = malloc((Nx + 1)*(Ny + 1)*sizeof(double));
-    u_new = malloc((Nx + 1)*(Ny + 1)*sizeof(double));
-    
-    
-    /* Setup IC */
-//    
-//    memset(u,0,Nx*Ny*sizeof(double));       // BC
-//    memset(u_old,0,Nx*Ny*sizeof(double));   // BC
-//    memset(u_new,0,Nx*Ny*sizeof(double));   // BC
-    
+
     
     
     // TODO: change to right notation i and j
     int coords[2]; // i = x, j = y
     MPI_Cart_coords(grid.cart_comm,global_rank, 2, coords);
-    int i = coords[0]; int j = coords[1];
-    
-//    int ll_x = 1 + i * (Nx/grid.px - 1);
-//    int ul_x = 1 + (i+1) * (Nx/grid.px - 1);
-//    
-//    int ll_y = 1 + j * (Ny/grid.py - 1);
-//    int ul_y = 1 + (j+1) * (Ny/grid.py - 1);
+    //int i = coords[0]; int j = coords[1];
     
     
-    int ll_x = i * (Nx/grid.px);
-    int ul_x = (i+1) * (Nx/grid.px);
-    
-    int ll_y = j * (Ny/grid.py);
-    int ul_y = (j+1) * (Ny/grid.py);
- 
+    int y_coord = coords[0]; int x_coord = coords[1];
     
     
     
-//    /* Setup IC */
-//    memset(u,0,(Nx/grid.px + 1)*(Ny/grid.py + 1)*sizeof(double));       // BC
-//    memset(u_old,0,(Nx/grid.px + 1)*(Ny/grid.py + 1)*sizeof(double));   // BC
-//    memset(u_new,0,(Nx/grid.px + 1)*(Ny/grid.py + 1)*sizeof(double));   // BC
-//    
+    int local_Nx = floor(Nx/grid.px);
+    int local_Ny = floor(Ny/grid.py);
+    
+    
+    int evenPx = 0; // check if dimensions are even
+    int evenPy = 0;
+    
+    
+    
+    if (x_coord < Nx % grid.px) {
+        local_Nx += 1;
+        evenPx = 1;
+    }
+    if (y_coord < Ny % grid.py) {
+        local_Ny += 1;
+        evenPy = 1;
+    }
+    
+    int xBlock = Nx + 2; // +1 enough?
+    int yBlock = Ny + 2;
+    
+    
+    u = malloc(xBlock*yBlock*sizeof(double)); // add 1 to get extra row and column (halo points)
+    u_old = malloc(xBlock*yBlock*sizeof(double));
+    u_new = malloc(xBlock*yBlock*sizeof(double));
+
     
     /* Setup IC */
-    memset(u,0,(Nx + 1)*(Ny + 1)*sizeof(double));       // BC
-    memset(u_old,0,(Nx + 1)*(Ny + 1)*sizeof(double));   // BC
-    memset(u_new,0,(Nx + 1)*(Ny + 1)*sizeof(double));   // BC
+    memset(u,0,xBlock*yBlock*sizeof(double));       // BC
+    memset(u_old,0,xBlock*yBlock*sizeof(double));   // BC
+    memset(u_new,0,xBlock*yBlock*sizeof(double));   // BC
+
     
     
+    // int MPI_Type_vector(int count, int blocklength, int stride, MPI_Datatype oldtype, MPI_Datatype *newtype)
+    MPI_Datatype SEND_COLUMN;
+    MPI_Type_vector(local_Ny, 1, xBlock, MPI_DOUBLE, &SEND_COLUMN);
+    MPI_Type_commit(&SEND_COLUMN);
     
-    if (global_rank == 0) {
-    dprintf("x %d, x %d \n", grid.row, grid.column);
-        dprintf("lower limit %d \n", ll_x);
-         dprintf("upper limit %d \n", ul_x);
-    dprintf("Ny %d \n", Ny);
+    
+    MPI_Datatype SEND_ROW;
+    MPI_Type_vector(local_Nx, 1, 1, MPI_DOUBLE, &SEND_ROW);
+    MPI_Type_commit(&SEND_ROW);
+    
+    
+    int ll_x = 1;
+    int ll_y = 1;
+    
+    int ul_x = local_Nx + 1;
+    int ul_y = local_Ny + 1;
+    
+    
+    if (x_coord == 0)
+        ll_x = 2;
+    if (x_coord == grid.px - 1)
+        ul_x = local_Nx;
+    
+    
+    if (y_coord == 0)
+        ll_y = 2;
+    if (y_coord == grid.py - 1)
+        ul_y = local_Ny;
+    
+    int x,y;
+    for(int i = ll_y; i < ul_y; ++i) {
+        for(int j = ll_x; j < ul_x; ++j) {
+            //double x = j*dx;
+            //double y = i*dx;
+            
+            if (evenPx == 1) {
+                x = ((j-1) + local_Nx * x_coord) * dx;
             }
-    
-    if (global_rank == nprocs - 1) {
-        dprintf("x %d, x %d \n", grid.row, grid.column);
-        dprintf("lower limit %d \n", ll_x);
-        dprintf("upper limit %d \n", ul_x);
-        dprintf("upper limit should be %d \n", Nx-1);
-        //dprintf("y %d \n", grid.column);
-    }
-    
-    
-    for(int i = ll_y + 1; i < ul_y - 1; ++i) {
-        for(int j = ll_x + 1; j < ul_x - 1; ++j) {
-            double x = j*dx;
-            double y = i*dx;
+            else {
+                x = ((j-1) + (Nx - (grid.px - x_coord) * local_Nx)) * dx;
+            }
             
-            /* u0 */
-            u[i*Nx+j] = initialize(x,y,0);
             
-            /* u1 */
-            u_new[i*Nx+j] = initialize(x,y,dt);
+            if (evenPy == 1) {
+                y = ((i-1) + local_Ny * y_coord) * dx;
+            }
+            else {
+                y = ((i-1) + (Ny - (grid.py - y_coord) * local_Ny)) * dx;
+            }
+            
+            
+            u[y*xBlock + j] = initialize(x,y,0);
+            u_new[y*xBlock + j] = initialize(x,y,dt);
+            
+ 
         }
     }
-//    for(int i = 1; i < (Ny-1); ++i) {
-//        for(int j = 1; j < (Nx-1); ++j) {
-//            double x = j*dx;
-//            double y = i*dx;
-//            
-//            /* u0 */
-//            u[i*Nx+j] = initialize(x,y,0);
-//            
-//            /* u1 */
-//            u_new[i*Nx+j] = initialize(x,y,dt);
-//        }
-//    }
-    
-#ifdef DEBUG
-    if (global_rank == 0) {
-        dprintf("u matrix \n");
-        printMatrix(u, Nx);
-       // MPI_Barrier(MPI_COMM_WORLD);
-       // dprintf("u_new matrix \n");
-        printMatrix(u_new, Nx);
-    }
-#endif
-    
+
 #ifdef WRITE_TO_FILE
     save_solution(u_new,Ny,Nx,1); // write from one processor only
 #endif
@@ -204,35 +197,12 @@ int main(int argc, char *argv[])
     
     begin=timer();
     for(int n=2; n<Nt; ++n) {
-//        /* Swap ptrs */
-//        double *tmp = u_old;
-//        u_old = u;
-//        u = u_new;
-//        u_new = tmp;
-//        
+      
         /* Apply stencil */
-//        for(int i = 1; i < (Ny-1); ++i) {
-//            for(int j = 1; j < (Nx-1); ++j) {
-        
-        
+
         /* Communicate between processors */
         MPI_Barrier(MPI_COMM_WORLD);
-       
-        int left_boundary = 0; int right_boundary = grid.px - 1;
-        int upper_boundary = grid.py - 1; int lower_boundary = 0;
-        
-        
-         // int MPI_Type_vector(int count, int blocklength, int stride, MPI_Datatype oldtype, MPI_Datatype *newtype)
-        MPI_Datatype SEND_BLOCK;
-        MPI_Type_vector(Ny/grid.py, 1, Nx, MPI_DOUBLE, &SEND_BLOCK);
-        MPI_Type_commit(&SEND_BLOCK);
-        
-        
-        MPI_Datatype SEND_ROW;
-        MPI_Type_vector(Nx/grid.px, 1, 1, MPI_DOUBLE, &SEND_ROW);
-        MPI_Type_commit(&SEND_ROW);
-        
-        
+    
         /* Swap ptrs */
         double *tmp = u_old;
         u_old = u;
@@ -242,113 +212,133 @@ int main(int argc, char *argv[])
         
         /* if not at left boundary, send left and recieve from left */
         
-        if (i != left_boundary) {
-           
-            dprintf("sending left, recieving from left \n");
+        //if (i != left_boundary) {
+        if (x_coord > 0) {
+            
             
             int dest_rank;
-         
             int coords[2]; // i = y, j = x   int i = coords[0]; int j = coords[1];
             //coords[0] = i - 1; // reciever is located to the left
-            coords[0] = i - 1; // reciever is located to the left
-            coords[1] = j;
+            coords[0] = x_coord - 1; // reciever is located to the left
+            coords[1] = y_coord;
         
             MPI_Cart_rank(grid.cart_comm, coords, &dest_rank);
            
             // send to the left
-            MPI_Send(&u[(ll_x) + j * Nx], 1, SEND_BLOCK, dest_rank, 0, grid.cart_comm); // ll_x correct for this ?
+          //  MPI_Send(&u[(ll_x) + j * Nx], 1, SEND_BLOCK, dest_rank, 0, grid.cart_comm); // ll_x correct for this ?
+            
+            MPI_Send(&u[xBlock+1], 1, SEND_COLUMN, grid.cart_rank - 1, 0, grid.cart_comm);
+            MPI_Recv(&u[xBlock], 1, SEND_COLUMN, grid.cart_rank - 1, 0, grid.cart_comm, NULL);
+            
             
             // recieve from the left
-            MPI_Recv(&u[(ll_x) + j * Nx - 1], 1, SEND_BLOCK, dest_rank, 0, grid.cart_comm, NULL); // ll_x * Nx?
+           // MPI_Recv(&u[(ll_x) + j * Nx - 1], 1, SEND_BLOCK, dest_rank, 0, grid.cart_comm, NULL); // ll_x * Nx?
         }
         
          /* if not at right boundary, send right and recieve from right */
         
-        if (i != right_boundary) {
-            
+       // if (i != right_boundary) {
+        if (x_coord < grid.px - 1) {
             dprintf("sending right, recieving from right \n");
             
             int coords[2];
-            int source_rank;
+            int dest_rank;
             
-            coords[0] = i + 1; // sender is located to the right
+            coords[0] = x_coord + 1; // sender is located to the right
             //coords[0] = i - 1; // sender is located to the right
-            coords[1] = j;
-            MPI_Cart_rank(grid.cart_comm, coords, &source_rank);
+            coords[1] = y_coord;
+            MPI_Cart_rank(grid.cart_comm, coords, &dest_rank);
+            
+            
+            MPI_Send(&u[xBlock + local_Nx], 1, SEND_COLUMN, grid.cart_rank + 1, 0, grid.cart_comm);
+            MPI_Recv(&u[xBlock + local_Nx + 1], 1, SEND_COLUMN, grid.cart_rank + 1, 0, grid.cart_comm, NULL);
+            
+            
+            
             
             // send to right
-            MPI_Send(&u[ul_x + j * Nx], 1, SEND_BLOCK, source_rank, 0, grid.cart_comm);
+            //MPI_Send(&u[ul_x + j * Nx], 1, SEND_BLOCK, source_rank, 0, grid.cart_comm);
             
             // recieve right halo points from the right
-            MPI_Recv(&u[ul_x + j * Nx + 1], 1, SEND_BLOCK, source_rank, 0, grid.cart_comm, NULL); // ul_x correct for this ?
+            //MPI_Recv(&u[ul_x + j * Nx + 1], 1, SEND_BLOCK, source_rank, 0, grid.cart_comm, NULL); // ul_x correct for this ?
         }
         
    
         /* if not at botom, send down and recieve from bottom */
         
-        if (j != lower_boundary) {
-            
+       // if (j != lower_boundary) {
+        if (y_coord < grid.py - 1) {
             dprintf("sending down, recieving from bottom \n");
             
             int coords[2];
-            int source_rank;
+            int dest_rank;
             
-            coords[0] = i;
-            coords[1] = j - 1; // sender is located above reciever
+            coords[0] = x_coord;
+            coords[1] = y_coord - 1; // sender is located above reciever
             //coords[1] = j + 1; // sender is located above reciever
-            MPI_Cart_rank(grid.cart_comm, coords, &source_rank);
+            MPI_Cart_rank(grid.cart_comm, coords, &dest_rank);
+            
+            
+            
+            
+            MPI_Send(&u[xBlock * local_Ny +1], local_Nx, MPI_DOUBLE, grid.cart_rank + grid.px, 0, grid.cart_comm);
+            MPI_Recv(&u[(local_Ny + 1) * xBlock + 1], local_Nx, MPI_DOUBLE, grid.cart_rank + grid.px, 0, grid.cart_comm, NULL);
+            
+            
             
             
             // send down the halo points one step
-            MPI_Send(&u[ul_y * Nx - Nx + ll_x], 1, SEND_ROW, source_rank, 0, grid.cart_comm); // ll_x correct for this ?
+          //  MPI_Send(&u[ul_y * Nx - Nx + ll_x], 1, SEND_ROW, source_rank, 0, grid.cart_comm); // ll_x correct for this ?
             
             // recieve halo points from the bottom
-            MPI_Recv(&u[ul_y * Nx + ll_x], 1, SEND_ROW, source_rank, 0, grid.cart_comm, NULL); // ul_x correct for this ?
+          //  MPI_Recv(&u[ul_y * Nx + ll_x], 1, SEND_ROW, source_rank, 0, grid.cart_comm, NULL); // ul_x correct for this ?
             
         }
         
         
         /* if not at top, send upwards and recieve from upper */
         
-        if (j != upper_boundary) {
-            
+      //  if (j != upper_boundary) {
+        if (y_coord > 0) {
             dprintf("sending up, recieving from upper \n");
             
             int coords[2];
-            int source_rank;
+            int dest_rank;
             
-            coords[0] = i;
-            coords[1] = j + 1; // sender is located above reciever
+            coords[0] = x_coord;
+            coords[1] = y_coord + 1; // sender is located above reciever
           //   coords[1] = j - 1; // sender is located above reciever
-            MPI_Cart_rank(grid.cart_comm, coords, &source_rank);
+            MPI_Cart_rank(grid.cart_comm, coords, &dest_rank);
             
+            
+            
+            MPI_Send(&u[xBlock + 1], local_Nx, MPI_DOUBLE, grid.cart_rank - grid.py, 0, grid.cart_comm);
+            MPI_Recv(&u[1], local_Nx, MPI_DOUBLE, grid.cart_rank - grid.py, 0, grid.cart_comm, NULL);
+            
+            
+        
             
             // send up the halo points one step
-            MPI_Send(&u[ll_y * Nx + ll_x], 1, SEND_ROW, source_rank, 0, grid.cart_comm); // ll_x correct for this ?
+         //   MPI_Send(&u[ll_y * Nx + ll_x], 1, SEND_ROW, source_rank, 0, grid.cart_comm); // ll_x correct for this ?
             
             // recieve halo points from upper
-            MPI_Recv(&u[ll_y * Nx - Nx + ll_x], 1, SEND_ROW, source_rank, 0, grid.cart_comm, NULL); // ul_x correct for this ?
+         //   MPI_Recv(&u[ll_y * Nx - Nx + ll_x], 1, SEND_ROW, source_rank, 0, grid.cart_comm, NULL); // ul_x correct for this ?
             
         }
         
-        
-#ifdef DEBUG
-        if (global_rank == 0) {
-            dprintf("u matrix \n");
-            printMatrix(u, Nx);
-          //  MPI_Barrier(MPI_COMM_WORLD);
-           // dprintf("u_new matrix \n");
-            printMatrix(u_new, Nx);
-        }
-#endif
+
         MPI_Barrier(MPI_COMM_WORLD);
         
         /* Apply stencil */
         for(int i = ll_y + 1; i < ul_y - 1; ++i) {
             for(int j = ll_x + 1; j < ul_x - 1; ++j) {
                 
-                u_new[i*Nx+j] = 2*u[i*Nx+j]-u_old[i*Nx+j]+lambda_sq*
-                (u[(i+1)*Nx+j] + u[(i-1)*Nx+j] + u[i*Nx+j+1] + u[i*Nx+j-1] -4*u[i*Nx+j]);
+                
+                u_new[i*xBlock+j] = 2*u[i*xBlock+j]-u_old[i*xBlock+j]+lambda_sq*
+                      (u[(i+1)*xBlock+j] + u[(i-1)*xBlock+j] + u[i*xBlock+j+1] + u[i*xBlock+j-1] -4*u[i*xBlock+j]);
+                
+             //   u_new[i*Nx+j] = 2*u[i*Nx+j]-u_old[i*Nx+j]+lambda_sq*
+          //      (u[(i+1)*Nx+j] + u[(i-1)*Nx+j] + u[i*Nx+j+1] + u[i*Nx+j-1] -4*u[i*Nx+j]);
             }
         }
         
@@ -360,21 +350,46 @@ int main(int argc, char *argv[])
  
         
          // TODO: enable verify solution when > 1 processor are used
+       
 #ifdef VERIFY
         double error=0.0;
-//        for(int i = 0; i < Ny; ++i) {
-//            for(int j = 0; j < Nx; ++j) {
+       
         
-        for(int i = ll_y; i < ul_y; ++i) {
-            for(int j = ll_x; j < ul_x; ++j) {
+        for(int i = 1; i < local_Ny + 1; ++i) {
+            for(int j = 1; j < local_Nx + 1; ++j) {
         
-                double e = fabs(u_new[i*Nx+j]-initialize(j*dx,i*dx,n*dt));
+                if (evenPx == 1) {
+                    x = ((j-1) + local_Nx * x_coord) * dx;
+                }
+                else {
+                    x = ((j-1) + (Nx - (grid.px - x_coord) * local_Nx)) * dx;
+                }
+                
+                
+                if (evenPy == 1) {
+                    y = ((i-1) + local_Ny * y_coord) * dx;
+                }
+                else {
+                    y = ((i-1) + (Ny - (grid.py - y_coord) * local_Ny)) * dx;
+                }
+                
+                
+               // double e = fabs(u_new[i*Nx+j]-initialize(j*dx,i*dx,n*dt));
+                
+                double e = fabs(u_new[i*xBlock+j]-initialize(x,y,n*dt));
                 if(e>error)
+                
+        
+                
                 error = e;
             }
         }
         if(error > max_error)
         max_error=error;
+        
+        MPI_Reduce(&max_error, &global_error, 1, MPI_DOUBLE, MPI_MAX, 0, grid.cart_comm);
+        
+        
 #endif
         
 #ifdef WRITE_TO_FILE
@@ -383,11 +398,13 @@ int main(int argc, char *argv[])
         
     }
     end=timer();
-    
+    if (grid.cart_rank == 0)
     printf("Time elapsed: %g s\n",(end-begin));
     
+    
 #ifdef VERIFY
-    printf("Maximum error: %g\n",max_error);
+     if (grid.cart_rank == 0)
+    printf("Maximum error: %g\n",global_error);
 #endif
     
     free(u);
@@ -449,7 +466,7 @@ void save_solution(double *u, int Ny, int Nx, int n)
     fclose(fp);
 }
 void makeGrid(info * grid) {
-    int reorder = FALSE;
+    int reorder = TRUE;
     int dims[2], period[2], coordinates[2], row_col_coordinates[2];
     int global_rank;
     
@@ -473,18 +490,18 @@ void makeGrid(info * grid) {
     grid -> column = coordinates[1];
     
     
-    grid -> px = dims[0];
-    grid -> py = dims[1];
+    grid -> py = dims[0];
+    grid -> px = dims[1];
     
     
-    /*Create subcommunicators for row and column*/
-    row_col_coordinates[0] = 0;
-    row_col_coordinates[1] = 1;
-    MPI_Cart_sub(grid->cart_comm, row_col_coordinates, &(grid->row_comm)); //row communicator
-    row_col_coordinates[0] = 1;
-    row_col_coordinates[1] = 0;
-    MPI_Cart_sub(grid->cart_comm, row_col_coordinates, &(grid->col_comm)); //column communicator
-    
+//    /*Create subcommunicators for row and column*/
+//    row_col_coordinates[0] = 0;
+//    row_col_coordinates[1] = 1;
+//    MPI_Cart_sub(grid->cart_comm, row_col_coordinates, &(grid->row_comm)); //row communicator
+//    row_col_coordinates[0] = 1;
+//    row_col_coordinates[1] = 0;
+//    MPI_Cart_sub(grid->cart_comm, row_col_coordinates, &(grid->col_comm)); //column communicator
+//    
     
 }
 /**
