@@ -1,6 +1,6 @@
 CC=mpicc
 LD = mpicc
-CFLAGS=-Wall -std=c99 -O3
+CFLAGS= -Ofast -Wall -std=c99
 LIBS=-lmpi -lm
 
 OBJS = wave.o
