@@ -1,0 +1,17 @@
+700 x 700 matrix
+1 processor
+Time elapsed: 0.578056 s
+4 processors
+Time elapsed: 0.166753 s
+9 processors
+Time elapsed: 0.08392 s
+12 processors
+Time elapsed: 0.0735002 s
+16 processors
+Time elapsed: 0.0648551 s
+25 processors
+Time elapsed: 0.0502589 s
+36 processors
+Time elapsed: 0.055639 s
+40 processors
+Time elapsed: 0.050565 s

@@ -1,0 +1,17 @@
+1300 x 1300 matrix
+1 processor
+Time elapsed: 4.4602 s
+4 processors
+Time elapsed: 1.52908 s
+9 processors
+Time elapsed: 1.19179 s
+12 processors
+Time elapsed: 0.811562 s
+16 processors
+Time elapsed: 0.333503 s
+25 processors
+Time elapsed: 0.204967 s
+36 processors
+Time elapsed: 0.187521 s
+40 processors
+Time elapsed: 0.153806 s

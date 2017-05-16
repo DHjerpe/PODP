@@ -1,0 +1,17 @@
+600 x 600 matrix
+1 processor
+Time elapsed: 0.385755 s
+4 processors
+Time elapsed: 0.106741 s
+9 processors
+Time elapsed: 0.048665 s
+12 processors
+Time elapsed: 0.0515852 s
+16 processors
+Time elapsed: 0.0384021 s
+25 processors
+Time elapsed: 0.0374119 s
+36 processors
+Time elapsed: 0.044682 s
+40 processors
+Time elapsed: 0.038435 s
